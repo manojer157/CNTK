@@ -608,8 +608,10 @@ public:
         Matrix<ElemType> gradient = GradientFor(fr);
         Matrix<ElemType> output = ValueFor(fr);
         Matrix<ElemType> inputm = InputRef(0).ValueFor(fr);
-
+        
         Matrix<ElemType> inputGrad = InputRef(inputIndex).GradientFor(fr);
+
+        /* Set input gradient to zero */
         Matrix<ElemType>::StochasticBinaryBackward(inputm, output, gradient, inputGrad, m_neuronST, m_RFAdjusted, m_passThrough, m_annealSlope);
     }
 
