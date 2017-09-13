@@ -6,15 +6,18 @@
 
 from .. import cntk_py
 from ..device import use_default_device
-from ..utils import value_to_seq, variable_value_to_seq
-from cntk.internal import sanitize_var_map, sanitize_function, typemap
-from ..io import _py_dict_to_cntk_dict, MinibatchData
+from cntk.internal import sanitize_var_map, sanitize_function, typemap, \
+                          _value_as_sequence_or_array
+from cntk.internal.utils import _py_dict_to_cntk_dict
+from ..io import MinibatchData
 
-__doc__= '''\
+
+__doc__ = '''\
 A trainer encapsulates the overall training process and employs one or more
-:doc:`learners <cntk.learner>` to tune the parameters of a specified model
+:mod:`~cntk.learners` to tune the parameters of a specified model
 using gradients of parameters w.r.t. a training objective.
 '''
+
 
 class Trainer(cntk_py.Trainer):
     '''
@@ -26,15 +29,17 @@ class Trainer(cntk_py.Trainer):
 
     Args:
        model (:class:`~cntk.ops.functions.Function`): root node of the function to train
-       criterion (Python tuple of :class:`~cntk.ops.functions.Function`, or :class:`~cntk.ops.functions.Function` or ):
-        Function with one or two outputs,
-        representing loss and, if given, evaluation metric (in this order).
-        Alternatively, a tuple(loss Function, evaluation Function) is also accepted.
-       parameter_learners (list): list of learners from :mod:`cntk.learner`
-       progress_writers (list): optionally, list of progress writers from :mod:`cntk.utils` to automatically track
-         training progress.
+       criterion (tuple of :class:`~cntk.ops.functions.Function` or :class:`~cntk.variables.Variable`):
+        Function with one or two outputs, representing loss and, if given, evaluation metric
+        (in this order). Alternatively, a tuple(loss Function, evaluation Function) is also
+        accepted.
+       parameter_learners (list): list of learners from :mod:`cntk.learners`
+       progress_writers (progress writer or list of them): optionally, list of
+        progress writers from :mod:`cntk.logging` to automatically track training
+        progress.
 
-        TODO: Would be great to allow to skip some parameters that should not be updated.
+    Todo:
+       Allow to skip some parameters that should not be updated.
     '''
 
     @staticmethod
@@ -43,12 +48,10 @@ class Trainer(cntk_py.Trainer):
             criterion = criterion.outputs           # break up tuple-valued Function into tuple of Functions
         # map Variable to Function
         from cntk import combine
-        criterion = tuple([combine([output], output.name) if isinstance(output, cntk_py.Variable) else output for output in criterion])
-        if not isinstance(criterion, tuple): # input can be a single value or a tuple (loss, metric)
-            criterion = (criterion, None)    # if single then pad with None for the metric
+        criterion = tuple([combine([output], name=output.name) if isinstance(output, cntk_py.Variable) else output for output in criterion])
         if len(criterion) == 1:
             criterion = criterion + (None,) # tuple of 1 value: pad with None
-        if len(criterion) != 2:
+        elif len(criterion) != 2:
             raise ValueError("criterion parameter must be a singleton or a tuple of 2 elements")
         return criterion
 
@@ -96,11 +99,14 @@ class Trainer(cntk_py.Trainer):
 
         Args:
             arguments: maps variables to their input data. Empty map signifies
-            end of local training data.
+             end of local training data.
              The interpretation depends on the input type:
+
                * `dict`: keys are input variable or names, and values are the input data.
-               * any other type: if node has an unique input, ``arguments`` is mapped to this input.
-                For nodes with more than one input, only `dict` is allowed.
+
+               * any other type: if node has a unique input, ``arguments`` is mapped to this input.
+                 For nodes with more than one input, only `dict` is allowed.
+
              In both cases, every sample in the data will be interpreted
              as a new sequence. To mark samples as continuations of the
              previous sequence, specify ``arguments`` as `tuple`: the
@@ -153,8 +159,8 @@ class Trainer(cntk_py.Trainer):
                 updated = super(Trainer, self).train_minibatch(arguments,
                     output_map, device)
 
-            for k,v in output_map.items():
-                output_map[k] = variable_value_to_seq(v, k)
+            for k, v in output_map.items():
+                output_map[k] = _value_as_sequence_or_array(v, k)
 
             return updated, output_map
         else:
@@ -179,8 +185,10 @@ class Trainer(cntk_py.Trainer):
 
                * `dict`: keys are input variable or names, and values are the input data.
                  See :meth:`~cntk.ops.functions.Function.forward` for details on passing input data.
-               * any other type: if node has an unique input, ``arguments`` is mapped to this input.
-                For nodes with more than one input, only `dict` is allowed.
+
+               * any other type: if node has a unique input, ``arguments`` is mapped to this input.
+                 For nodes with more than one input, only `dict` is allowed.
+
              In both cases, every sample in the data will be interpreted
              as a new sequence. To mark samples as continuations of the
              previous sequence, specify ``arguments`` as `tuple`: the
@@ -199,7 +207,7 @@ class Trainer(cntk_py.Trainer):
 
         Returns:
             `float`: the average evaluation criterion value per sample for the
-              tested minibatch.
+            tested minibatch.
         '''
         if not device:
             device = use_default_device()
@@ -224,6 +232,7 @@ class Trainer(cntk_py.Trainer):
 
         Args:
             filename (str): filename to store the checkpoint.
+            external_state (dict): additional external state, default is empty.
         '''
 
         super(Trainer, self).save_checkpoint(filename, _py_dict_to_cntk_dict(external_state))
@@ -237,7 +246,7 @@ class Trainer(cntk_py.Trainer):
             filename (str): filename to restore the checkpoint from
         '''
 
-        super(Trainer, self).restore_from_checkpoint(filename)
+        return super(Trainer, self).restore_from_checkpoint(filename)
 
     @property
     @typemap

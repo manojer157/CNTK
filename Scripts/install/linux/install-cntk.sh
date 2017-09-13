@@ -9,12 +9,12 @@
 SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
 SCRIPT_DIR="$(readlink -f "$(dirname "${BASH_SOURCE[0]}")")"
 
-PARSED_ARGS=$(getopt -o '' --long py-version:,anaconda-basepath:,wheel-base-url: -n "$SCRIPT_NAME" -- "$@")
+PARSED_ARGS=$(getopt -o '' --long py-version:,anaconda-basepath:,wheel-base-url:,docker -n "$SCRIPT_NAME" -- "$@")
 
 function die {
   set +x
   echo -e $1
-  echo Go to https://github.com/Microsoft/CNTK/wiki/Setup-Linux-Binary-Script for help.
+  echo Go to https://docs.microsoft.com/en-us/cognitive-toolkit/Setup-Linux-Binary-Script for help.
   exit 1
 }
 
@@ -24,16 +24,17 @@ eval set -- "$PARSED_ARGS"
 PY_VERSION=35
 ANACONDA_PREFIX="$HOME/anaconda3"
 WHEEL_BASE_URL=https://cntk.ai/PythonWheel/
+DOCKER_INSTALLATION=0
 
 while true; do
   case "$1" in
     --py-version)
       case "$2" in
-        27 | 34 | 35)
+        27 | 34 | 35 | 36)
           PY_VERSION="$2"
           ;;
         *)
-          die "Invalid value for --py-version option, please specify 27, 34, or 35."
+          die "Invalid value for --py-version option, please specify 27, 34, 35, or 36."
           ;;
       esac
       shift 2
@@ -41,6 +42,10 @@ while true; do
     --anaconda-basepath)
       ANACONDA_PREFIX="$2"
       shift 2
+      ;;
+    --docker) # use during Docker Hub image building, not documented
+      DOCKER_INSTALLATION=1
+      shift
       ;;
     --wheel-base-url) # intended for testing, not documented
       WHEEL_BASE_URL="$2"
@@ -102,13 +107,13 @@ TARGET_CONFIGURATION="${BASH_REMATCH[1]}"
 
 # Anaconda download / install dependencies
 # [coreutils for sha{1,256}sum]
-PACKAGES="bzip2 wget coreutils"
+PACKAGES="bzip2 wget ca-certificates coreutils"
 
 # CNTK run-time dependencies (OpenMPI)
 if [[ "$(lsb_release -i)" =~ :.*Ubuntu ]] && [[ "$(lsb_release -r)" =~ :.*14\.04 ]]; then
   # On Ubuntu 14.04: need to build ourselves, openmpi-bin is too old
   BUILD_OPENMPI=1
-  PACKAGES+=" wget ca-certificates build-essential"
+  PACKAGES+=" build-essential"
 else
   # Else: try with openmpi-bin
   BUILD_OPENMPI=0
@@ -116,7 +121,7 @@ else
 fi
 
 # Additional packages for ImageReader
-PACKAGES+=" libjasper1 libjpeg8 libpng12-0"
+PACKAGES+=" libjasper1 libjpeg8 libpng12-0 libtiff5"
 
 if dpkg -s $PACKAGES 1>/dev/null 2>/dev/null; then
   printf "Packages already installed, skipping.\n"
@@ -163,6 +168,9 @@ if [ "$BUILD_OPENMPI" = "1" ]; then
     make -j $(nproc) install
     cd ..
     rm -rf $OPENMPI
+    if [ "$DOCKER_INSTALLATION" = "1" ]; then
+      rm -f $OPENMPI.tar.bz2
+    fi
   fi
 fi
 
@@ -180,6 +188,9 @@ else
   echo "$ANACONDA_SHA256  $ANACONDA" | sha256sum -c --strict -
   chmod a+x "$ANACONDA"
   "./$ANACONDA" -b -p "$ANACONDA_PREFIX"
+  if [ "$DOCKER_INSTALLATION" = "1" ]; then
+    rm -f $ANACONDA
+  fi
 fi
 
 CONDA="$ANACONDA_PREFIX/bin/conda"
@@ -219,6 +230,7 @@ set -x
 
 LD_LIBRARY_PATH_SETTING="$CNTK_LIB_PATH:$CNTK_DEP_LIB_PATH"
 if [ "$BUILD_OPENMPI" = "1" ]; then
+  OPEN_MPI_PATH_SETTINGS=":$OPENMPI_PREFIX/bin"
   LD_LIBRARY_PATH_SETTING+=":$OPENMPI_PREFIX/lib"
 fi
 LD_LIBRARY_PATH_SETTING+=":\$LD_LIBRARY_PATH"
@@ -230,7 +242,7 @@ if [ -z "\$BASH_VERSION" ]; then
 elif [ "\$(basename "\$0" 2> /dev/null)" == "$ACTIVATE_SCRIPT_NAME" ]; then
   echo Error: this script is meant to be sourced. Run 'source activate-cntk'
 else
-  export PATH="$CNTK_BIN_PATH:\$PATH"
+  export PATH="$CNTK_BIN_PATH:\$PATH$OPEN_MPI_PATH_SETTINGS"
   export LD_LIBRARY_PATH="$LD_LIBRARY_PATH_SETTING"
   source "$PY_ACTIVATE" "$CNTK_PY_ENV_PREFIX"
 
@@ -242,6 +254,10 @@ CNTK is activated.
 Please checkout tutorials and examples here:
   $CNTK_TUTORIALS_PATH
   $CNTK_EXAMPLES_PATH
+
+To deactivate the environment run
+
+  source $PY_DEACTIVATE
 
 ************************************************************
 MESSAGE
@@ -263,7 +279,44 @@ Please checkout tutorials and examples here:
   $CNTK_TUTORIALS_PATH
   $CNTK_EXAMPLES_PATH
 
+To deactivate the environment run
+
+  source $PY_DEACTIVATE
+
 ************************************************************
 FINALMESSAGE
+
+if [ "$DOCKER_INSTALLATION" = "1" ]; then
+  # Docker Hub Image specific actions
+
+  # Clean up
+  apt-get -y autoremove
+  rm -rf /var/lib/apt/lists/*
+  "$ANACONDA_PREFIX/bin/conda" clean --all --yes
+  # Remove Python Wheels "just in case"
+  # As of v2.0 Beta 15 they should not be a part of the Drop
+  rm -rf ./cntk/python
+
+  # Add login Welcome message
+  # and call CNTK activation on login
+
+  cat >> /root/.bashrc <<WELCOMEACTIVATECNTK
+  # CNTK Welcome Message
+  cat <<MESSAGE
+
+************************************************************
+Welcome to Microsoft Cognitive Toolkit (CNTK) v. $CNTK_VERSION
+
+Activating CNTK environment...
+
+(Use command below to activate manually when needed)
+
+  source "$PWD/$ACTIVATE_SCRIPT_NAME"
+MESSAGE
+
+source "$PWD/$ACTIVATE_SCRIPT_NAME"
+WELCOMEACTIVATECNTK
+
+fi
 
 # vim:set expandtab shiftwidth=2 tabstop=2:

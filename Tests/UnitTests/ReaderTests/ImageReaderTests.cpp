@@ -150,7 +150,8 @@ BOOST_AUTO_TEST_CASE(Base64WithWriteIds)
         std::vector<std::wstring> additionalParameters
         {
             L"MapFile=\"$RootDir$/Base64WithStringIds_map.txt\"",
-            L"DeserializerType=\"Base64ImageDeserializer\""
+            L"DeserializerType=\"Base64ImageDeserializer\"",
+            L"useNumericSequenceKeys=false"
         };
 
         multiset<string> actualKeys;
@@ -212,7 +213,8 @@ BOOST_AUTO_TEST_CASE(ImageAndImageReaderSimple)
         false,
         false,
         true,
-        { L"MapFile=\"$RootDir$/ImageReaderSimple_map.txt\"" });
+        { L"MapFile=\"$RootDir$/ImageReaderSimple_map.txt\"",
+          L"SecondMapFile=\"$RootDir$/ImageReaderSimple_map.txt\"" });
 }
 
 BOOST_AUTO_TEST_CASE(ImageReaderBadMap)
@@ -517,6 +519,37 @@ BOOST_AUTO_TEST_CASE(ImageReaderMissingScaleTransforms)
         });
 }
 
+BOOST_AUTO_TEST_CASE(ImageReaderNoMatchingIds)
+{
+    BOOST_REQUIRE_EXCEPTION(
+        HelperRunReaderTest<float>(
+            testDataPath() + "/Config/ImageDeserializers.cntk",
+            testDataPath() + "/Control/ImageReaderNoMatchingIds.txt",
+            testDataPath() + "/Control/ImageReaderNoMatchingIds_Output.txt",
+            "ImageAndImageReaderSimple_Test",
+            "reader",
+            2,
+            2,
+            1,
+            1,
+            0,
+            0,
+            1,
+            false,
+            false,
+            true,
+            { L"MapFile=\"$RootDir$/Base64WithStringIds_map.txt\"",
+              L"SecondMapFile=\"$RootDir$/Base64WithStringIdsAnother_map.txt\"",
+              L"Deserializer=\"Base64ImageDeserializer\"",
+              L"useNumericSequenceKeys=false" }),
+        std::runtime_error,
+        [](const std::runtime_error& ex)
+    {
+        return string("Could not reconcile data between different deserializers."
+            " Keys of logical sequences do not match.") == ex.what();
+    });
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 namespace
@@ -532,7 +565,7 @@ namespace
     BOOST_AUTO_TEST_CASE(ImageReader3DotsSyntaxInMapFile)
     {
         auto testDir = testDataPath();
-        std::wstring mapFileLocaton = std::wstring(testDir.begin(), testDir.end()) + L"/Data/ImageReader3Dots_map.txt";
+        std::wstring mapFileLocation = std::wstring(testDir.begin(), testDir.end()) + L"/Data/ImageReader3Dots_map.txt";
         HelperRunReaderTest<float>(
             testDataPath() + "/Config/ImageDeserializers.cntk",
             testDataPath() + "/Control/ImageReader3DotsSyntaxInMapFile_Control.txt",
@@ -549,7 +582,7 @@ namespace
             false,
             true,
             true,
-            { L"MapFile=\"" + mapFileLocaton + L"\"" });
+            { L"MapFile=\"" + mapFileLocation + L"\"" });
     }
 
     BOOST_AUTO_TEST_SUITE_END()

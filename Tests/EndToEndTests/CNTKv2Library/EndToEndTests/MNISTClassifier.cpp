@@ -10,7 +10,7 @@ using namespace CNTK;
 
 using namespace std::placeholders;
 
-void TrainSimpleFeedForwardClassifer(const DeviceDescriptor& device)
+void TrainSimpleFeedForwardClassifier(const DeviceDescriptor& device)
 {
     const size_t inputDim = 2;
     const size_t numOutputClasses = 2;
@@ -59,7 +59,7 @@ void TrainSimpleFeedForwardClassifer(const DeviceDescriptor& device)
         prediction = predictionVar;
     }
 
-    LearningRatePerSampleSchedule learningRatePerSample = 0.02;
+    LearningRateSchedule learningRatePerSample = TrainingParameterPerSampleSchedule(0.02);
     minibatchSource = TextFormatMinibatchSource(L"SimpleDataTrain_cntk_text.txt", { { L"features", inputDim }, { L"labels", numOutputClasses } });
     auto trainer = CreateTrainer(classifierOutput, trainingLoss, prediction, { SGDLearner(classifierOutput->Parameters(), learningRatePerSample) });
     size_t outputFrequencyInMinibatches = 20;
@@ -121,7 +121,7 @@ void TrainMNISTClassifier(const DeviceDescriptor& device)
     auto featureStreamInfo = minibatchSource->StreamInfo(featureStreamName);
     auto labelStreamInfo = minibatchSource->StreamInfo(labelsStreamName);
 
-    LearningRatePerSampleSchedule learningRatePerSample = 0.003125;
+    LearningRateSchedule learningRatePerSample = TrainingParameterPerSampleSchedule(0.003125);
     auto trainer = CreateTrainer(classifierOutput, trainingLoss, prediction, { SGDLearner(classifierOutput->Parameters(), learningRatePerSample) });
 
     size_t outputFrequencyInMinibatches = 20;
@@ -137,9 +137,8 @@ void MNISTClassifierTests()
 {
     fprintf(stderr, "\nMNISTClassifierTests..\n");
 
-    TrainSimpleFeedForwardClassifer(DeviceDescriptor::CPUDevice());
-    if (IsGPUAvailable())
-    {
+    if (ShouldRunOnCpu())
+        TrainSimpleFeedForwardClassifier(DeviceDescriptor::CPUDevice());
+    if (ShouldRunOnGpu())
         TrainMNISTClassifier(DeviceDescriptor::GPUDevice(0));
-    }
 }

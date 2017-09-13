@@ -174,8 +174,8 @@ void TrainSequenceToSequenceTranslator(const DeviceDescriptor& device, bool useS
     auto rawInputStreamInfo = minibatchSource->StreamInfo(featureStreamName);
     auto rawLabelsStreamInfo = minibatchSource->StreamInfo(labelStreamName);
 
-    LearningRatePerSampleSchedule learningRatePerSample = 0.007;
-    MomentumAsTimeConstantSchedule momentumTimeConstant = 1100;
+    LearningRateSchedule learningRatePerSample = TrainingParameterPerSampleSchedule(0.007);
+    MomentumSchedule momentumTimeConstant = MomentumAsTimeConstantSchedule(1100);
     AdditionalLearningOptions additionalOptions;
     additionalOptions.gradientClippingThresholdPerSample = 2.3;
     additionalOptions.gradientClippingWithTruncation = true;
@@ -241,10 +241,13 @@ void TrainSequenceToSequenceTranslator()
 {
     fprintf(stderr, "\nTrainSequenceToSequenceTranslator..\n");
 
-    TrainSequenceToSequenceTranslator(DeviceDescriptor::CPUDevice(), false, true, false, false, true, true);
-    TrainSequenceToSequenceTranslator(DeviceDescriptor::CPUDevice(), true, false, false, false, true, true);
+    if (ShouldRunOnCpu())
+    {
+        TrainSequenceToSequenceTranslator(DeviceDescriptor::CPUDevice(), false, true, false, false, true, true);
+        TrainSequenceToSequenceTranslator(DeviceDescriptor::CPUDevice(), true, false, false, false, true, true);
+    }
 
-    if (IsGPUAvailable())
+    if (ShouldRunOnGpu())
     {
         TrainSequenceToSequenceTranslator(DeviceDescriptor::GPUDevice(0), false, false, true, true, false, false);
         TrainSequenceToSequenceTranslator(DeviceDescriptor::GPUDevice(0), true, true, true, true, false, false);

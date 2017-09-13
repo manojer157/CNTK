@@ -10,7 +10,7 @@ using namespace CNTK;
 
 using namespace std::placeholders;
 
-void TrainLSTMSequenceClassifer(const DeviceDescriptor& device, bool useSparseLabels, bool testSaveAndReLoad)
+void TrainLSTMSequenceClassifier(const DeviceDescriptor& device, bool useSparseLabels, bool testSaveAndReLoad)
 {
     const size_t inputDim = 2000;
     const size_t cellDim = 25;
@@ -20,7 +20,7 @@ void TrainLSTMSequenceClassifer(const DeviceDescriptor& device, bool useSparseLa
 
     auto featuresName = L"features";
     auto features = InputVariable({ inputDim }, true /*isSparse*/, DataType::Float, featuresName);
-    auto classifierOutput = LSTMSequenceClassiferNet(features, numOutputClasses, embeddingDim, hiddenDim, cellDim, device, L"classifierOutput");
+    auto classifierOutput = LSTMSequenceClassifierNet(features, numOutputClasses, embeddingDim, hiddenDim, cellDim, device, L"classifierOutput");
 
     auto labelsName = L"labels";
     auto labels = InputVariable({ numOutputClasses }, useSparseLabels, DataType::Float, labelsName, { Axis::DefaultBatchAxis() });
@@ -46,8 +46,8 @@ void TrainLSTMSequenceClassifer(const DeviceDescriptor& device, bool useSparseLa
     auto featureStreamInfo = minibatchSource->StreamInfo(featuresName);
     auto labelStreamInfo = minibatchSource->StreamInfo(labelsName);
 
-    LearningRatePerSampleSchedule learningRatePerSample = 0.0005;
-    MomentumAsTimeConstantSchedule momentumTimeConstant = 256;
+    LearningRateSchedule learningRatePerSample = TrainingParameterPerSampleSchedule(0.0005);
+    MomentumSchedule momentumTimeConstant = MomentumAsTimeConstantSchedule(256);
     auto trainer = CreateTrainer(classifierOutput, trainingLoss, prediction,
     { MomentumSGDLearner(classifierOutput->Parameters(), learningRatePerSample,
         momentumTimeConstant, /*unitGainMomentum = */true) });
@@ -74,7 +74,7 @@ void TestLearningRateControl(const DeviceDescriptor& device)
 
     auto featuresName = L"features";
     auto features = InputVariable({ inputDim }, true /*isSparse*/, DataType::Float, featuresName);
-    auto classifierOutput = LSTMSequenceClassiferNet(features, numOutputClasses, embeddingDim, hiddenDim, cellDim, device, L"classifierOutput");
+    auto classifierOutput = LSTMSequenceClassifierNet(features, numOutputClasses, embeddingDim, hiddenDim, cellDim, device, L"classifierOutput");
 
     auto labelsName = L"labels";
     auto labels = InputVariable({ numOutputClasses }, DataType::Float, labelsName, { Axis::DefaultBatchAxis() });
@@ -89,7 +89,7 @@ void TestLearningRateControl(const DeviceDescriptor& device)
     auto minibatchData = minibatchSource->GetNextMinibatch(minibatchSize, device);
     auto actualMBSize = minibatchData[labelStreamInfo].numberOfSamples;
 
-    LearningRatePerSampleSchedule learningRateSchedule({ { 2, 0.0005 }, { 2, 0.00025 } }, actualMBSize);
+    LearningRateSchedule learningRateSchedule = TrainingParameterPerSampleSchedule(std::vector<std::pair<size_t, double>>({ { 2, 0.0005 }, { 2, 0.00025 } }), actualMBSize);
     auto learner = SGDLearner(classifierOutput->Parameters(), learningRateSchedule);
     auto trainer = CreateTrainer(classifierOutput, trainingLoss, prediction, { learner });
     FloatingPointCompare(learner->LearningRate(), 0.0005, "Learner::LearningRate does not match expectation");
@@ -124,7 +124,7 @@ void TestLearningRateControl(const DeviceDescriptor& device)
     trainer->RestoreFromCheckpoint(modelFile);
     FloatingPointCompare(learner->LearningRate(), 0.0005, "Learner::LearningRate does not match expectation");
 
-    learner->ResetLearningRate(LearningRatePerSampleSchedule(0.0004));
+    learner->ResetLearningRate(TrainingParameterPerSampleSchedule(0.0004));
     FloatingPointCompare(learner->LearningRate(), 0.0004, "Learner::LearningRate does not match expectation");
 
     trainer->SaveCheckpoint(modelFile);
@@ -156,20 +156,22 @@ void TestLearningRateControl(const DeviceDescriptor& device)
     FloatingPointCompare(learner->LearningRate(), 0.0004, "Learner::LearningRate does not match expectation");
 }
 
-void TrainLSTMSequenceClassifer()
+void TrainLSTMSequenceClassifier()
 {
-    fprintf(stderr, "\nTrainLSTMSequenceClassifer..\n");
+    fprintf(stderr, "\nTrainLSTMSequenceClassifier..\n");
 
-    if (IsGPUAvailable())
+    if (ShouldRunOnGpu())
         TestLearningRateControl(DeviceDescriptor::GPUDevice(0));
-    else
+
+    if (ShouldRunOnCpu())
         fprintf(stderr, "Cannot run TestLearningRateControl test on CPU device.\n");
 
-    if (IsGPUAvailable())
+    if (ShouldRunOnGpu())
     {
-        TrainLSTMSequenceClassifer(DeviceDescriptor::GPUDevice(0), true, false);
-        TrainLSTMSequenceClassifer(DeviceDescriptor::GPUDevice(0), false, true);
+        TrainLSTMSequenceClassifier(DeviceDescriptor::GPUDevice(0), true, false);
+        TrainLSTMSequenceClassifier(DeviceDescriptor::GPUDevice(0), false, true);
     }
 
-    TrainLSTMSequenceClassifer(DeviceDescriptor::CPUDevice(), true, false);
+    if (ShouldRunOnCpu())
+        TrainLSTMSequenceClassifier(DeviceDescriptor::CPUDevice(), true, false);
 }

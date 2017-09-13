@@ -15,5 +15,4 @@ namespace Microsoft { namespace MSR { namespace CNTK {
 
     std::atomic<bool> Globals::m_enableShareNodeValueMatrices(true);
     std::atomic<bool> Globals::m_optimizeGradientAccumulation(true);
-
 }}}

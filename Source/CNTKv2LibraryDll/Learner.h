@@ -8,6 +8,7 @@
 #include "stdafx.h"
 #include "CNTKLibrary.h"
 #include <numeric>
+#include <functional>
 
 namespace CNTK 
 {
@@ -17,15 +18,15 @@ namespace CNTK
     class LearnerBase : public Learner
     {
     public:
-        virtual bool Update(std::unordered_map<Parameter, NDArrayViewPtr>& gradientValues, size_t trainingSampleCount, bool sweepEnd = false) override final;
+        virtual bool Update(std::unordered_map<Parameter, NDArrayViewPtr>& gradientValues, size_t trainingSampleCount, bool sweepEnd = false) override;
 
-        virtual Dictionary CreateCheckpoint() override final;
+        virtual Dictionary CreateCheckpoint() override;
 
         virtual size_t CurrentVersion() const override final { return s_serializationVersion; }
 
-        virtual void RestoreFromCheckpoint(const Dictionary& checkpoint) override final;
+        virtual void RestoreFromCheckpoint(const Dictionary& checkpoint) override;
 
-        virtual void ResetSmoothedGradients() override final;
+        virtual void ResetSmoothedGradients() override;
 
     protected:
         // allocateSmoothGradients flag specifies whether NDArrayViews for smoothed gradients can be allocated 
@@ -39,24 +40,48 @@ namespace CNTK
 
         virtual void Update(const Parameter& parameter, const NDArrayViewPtr& gradientValue, const NDArrayViewPtr& smoothedGradientValue, size_t trainingSampleCount) const = 0;
 
+        // Allows derived class may override this to perform per-minibatch update actions
+        virtual void UpdateOnMinibatch(size_t /*trainingSampleCount*/) {}
+
         std::string LearnerType() const;
 
-        // Returns current (per-sample) learning rate.
+        // Returns current learning rate.
         double LearningRate(size_t minibatchSize) const
         {
             auto learningRate = Learner::LearningRate();
-            if (m_learningRateSchedule.Unit() == LearningRateSchedule::UnitType::Minibatch)
+            if (IsCompatibleMode(m_learningRateSchedule))
             {
-                // learning rate needs to be converted to the per-sample value.
-                return (minibatchSize == 0) ? 0.0 : learningRate / minibatchSize;
+                if (IsCompatibleMode())
+                    //learner is in compatible mode, the gradients are already mean gradient so the learning rate are directly applied
+                    return learningRate;
+                else
+                    //learner is not in compatible mode, the gradients are not mean gradient so the learning rate need to be scaled to per sample rate to simulate per minibatch rate
+                    return learningRate / (double)minibatchSize;
+            }
+            else 
+            {
+                std::size_t ref_mbsize = m_learningRateSchedule.GetMinibatchSize();
+                assert(ref_mbsize > 0);
+                if (IsCompatibleMode())
+                    //learner is in compatible mode, the gradients are already mean gradient so the learning rate needs to be scaled to match the encountered minibatch size
+                    return learningRate  * ((double) minibatchSize / (double) ref_mbsize);
+                else
+                    //learner is not in compatible mode, the gradients are not mean gradient so the learning rate need to scaled to per sample rate
+                    return learningRate / ref_mbsize;
             }
 
             return learningRate;
         }
 
-        AdditionalLearningOptions m_additionalOptions;
+        void ReportTrainingParameterValue(const TrainingParameterSchedule<double>& schedule, const std::wstring& name) const;
+
+        // A map cointaining hyperparameter names and corresponging values that's used to track and report changes 
+        // in hyperparameter values.
+        mutable std::map <std::wstring, double> m_trainingParametersMap;
 
         std::unordered_map<Parameter, NDArrayViewPtr> m_smoothedGradientValues;
+
+        mutable size_t m_noiseInjectionSeed;
 
         // The following four static protected methods expose private methods of NDArrayView class
         // (which declares LearnerBase as friend class), so that they are available to subclasses.
@@ -91,8 +116,6 @@ namespace CNTK
 
         // Retrieves the shape of the matrix corresponding to the parameter value.
         static NDShape GetMatrixShape(const Parameter& parameter);
-
-        size_t m_minibatchCount;
 
     private:
         // Templatized update function, it invokes preprocess and postprocess using the provided
@@ -165,6 +188,17 @@ namespace CNTK
             return m_unitGain;
         }
 
+        ///Return the unit gain factor. Note that the unit gain factor should not be scaled according to the minibatch size. See explanation in the Update(...) function.
+        template <typename ElementType>
+        ElementType UnitGainFactor(size_t minibatchSize) const
+        {
+            //TODO: Preliminary study shows that the unitgain factor should use the raw momentum instead of the scaled momentum as the following: 
+            //      ElementType momentum = (ElementType)GetCurrentTrainingParameterValue(m_momentumSchedule);
+            //However, further investigation over the perfs are needed.
+            ElementType momentum = ElementType(MomentumValueForMB(minibatchSize));
+            return UseUnitGainMomentum() ? ElementType(1.0) - momentum : ElementType(1.0);
+        }
+
     private:
         MomentumSchedule m_momentumSchedule;
         bool m_unitGain;
@@ -207,6 +241,25 @@ namespace CNTK
         void Update(const Parameter& parameter, const NDArrayViewPtr& gradientValue, const NDArrayViewPtr& smoothedGradientValue, size_t trainingSampleCount) const;
     };
 
+    class LearnerAdaDelta : public LearnerBase
+    {
+    public:
+        LearnerAdaDelta(
+            const std::vector<Parameter>& parameters,
+            const LearningRateSchedule& learningRateSchedule,
+            double rho, double epsilon,
+            AdditionalLearningOptions additionalOptions);
+
+    protected:
+        double m_rho;
+        double m_epsilon;
+
+        virtual void Update(const Parameter& parameter, const NDArrayViewPtr& gradientValue, const NDArrayViewPtr& smoothedGradientValue, size_t trainingSampleCount) const override;
+
+        template <typename ElementType>
+        void Update(const Parameter& parameter, const NDArrayViewPtr& gradientValue, const NDArrayViewPtr& smoothedGradientValue, size_t trainingSampleCount) const;
+    };
+
     class LearnerFSAdaGrad : public LearnerMomentumSGD
     {
     public:
@@ -218,15 +271,23 @@ namespace CNTK
                          const MomentumSchedule& varianceMomentumSchedule,
                          AdditionalLearningOptions additionalOptions);
 
+        virtual Dictionary CreateCheckpoint() override;
+
+        virtual void RestoreFromCheckpoint(const Dictionary& checkpoint) override;
+
+        virtual void ResetSmoothedGradients() override;
+
     protected:
 
         virtual void Update(const Parameter& parameter, const NDArrayViewPtr& gradientValue, const NDArrayViewPtr& smoothedGradientValue, size_t trainingSampleCount) const override;
+        virtual void UpdateOnMinibatch(size_t trainingSampleCount) override;
 
         template <typename ElementType>
         void Update(const Parameter& parameter, const NDArrayViewPtr& gradientValue, const NDArrayViewPtr& smoothedGradientValue, size_t trainingSampleCount) const;
 
     private:
         static const double s_targetAdagradAvDenom;
+        double m_targetAdagradAvDenom_x_sqrtAdagradSqrFrames;
 
         // returns current per-minibatch variance momentum value.
         double VarianceMomentumValueForMB(size_t minibatchSize) const
@@ -234,7 +295,7 @@ namespace CNTK
             return MomentumValueForMB(m_varianceMomentumSchedule, minibatchSize);
         }
 
-        mutable std::unordered_map<Parameter, double> m_smoothedCounts;
+        double m_smoothedCount;
         MomentumSchedule m_varianceMomentumSchedule;
     };
 
@@ -247,11 +308,20 @@ namespace CNTK
             const MomentumSchedule& momentumSchedule,
             bool unitGain,
             const MomentumSchedule& varianceMomentumSchedule,
+            double epsilon,
+            bool adamax,
             AdditionalLearningOptions additionalOptions);
+
+        virtual Dictionary CreateCheckpoint() override;
+
+        virtual void RestoreFromCheckpoint(const Dictionary& checkpoint) override;
+
+        virtual void ResetSmoothedGradients() override;
 
     protected:
 
         virtual void Update(const Parameter& parameter, const NDArrayViewPtr& gradientValue, const NDArrayViewPtr& smoothedGradientValue, size_t trainingSampleCount) const override;
+        virtual void UpdateOnMinibatch(size_t trainingSampleCount) override;
 
         template <typename ElementType>
         void Update(const Parameter& parameter, const NDArrayViewPtr& gradientValue, const NDArrayViewPtr& smoothedGradientValue, size_t trainingSampleCount) const;
@@ -261,11 +331,14 @@ namespace CNTK
         // returns current per-minibatch variance momentum value.
         double VarianceMomentumValueForMB(size_t minibatchSize) const
         {
+            //TODO: According to my preliminary analysis, the second momentum variance scaling is different from momentum scaling; need to double check -- yuqing tang
             return MomentumValueForMB(m_varianceMomentumSchedule, minibatchSize);
         }
 
-        mutable std::unordered_map<Parameter, double> m_smoothedCounts;
+        double m_smoothedCount;
         MomentumSchedule m_varianceMomentumSchedule;
+        double m_epsilon;
+        bool m_adamax;
     };
 
     class LearnerRMSProp : public LearnerBase
@@ -278,6 +351,12 @@ namespace CNTK
                        bool needAveMultiplier,
                        AdditionalLearningOptions additionalOptions);
 
+        virtual Dictionary CreateCheckpoint() override;
+
+        virtual void RestoreFromCheckpoint(const Dictionary& checkpoint) override;
+
+        virtual void ResetSmoothedGradients() override;
+
     protected:
 
         double m_gamma;
@@ -286,10 +365,42 @@ namespace CNTK
         double m_max;
         double m_min;
         bool m_needAveMultiplier;
+        double m_smoothedCount;
 
         virtual void Update(const Parameter& parameter, const NDArrayViewPtr& gradientValue, const NDArrayViewPtr& smoothedGradientValue, size_t trainingSampleCount) const override;
+        virtual void UpdateOnMinibatch(size_t trainingSampleCount) override;
 
         template <typename ElementType>
         void Update(const Parameter& parameter, const NDArrayViewPtr& gradientValue, const NDArrayViewPtr& smoothedGradientValue, size_t trainingSampleCount) const;
+    };
+
+
+    class LearnerUniversal : public LearnerBase
+    {
+        std::unordered_map<Parameter, Variable> m_parameter_gradient_map;
+        FunctionPtr m_update_func;
+
+    public:
+        LearnerUniversal(const std::vector<Parameter>& parameters, const ParameterUpdateFunctor& func);
+
+        LearnerUniversal(const std::vector<Parameter>& parameters, const std::vector<Variable>& gradients, FunctionPtr updateFunc);
+    
+        virtual bool Update(std::unordered_map<Parameter, NDArrayViewPtr>& gradientValues, size_t trainingSampleCount, bool sweepEnd = false) override;
+
+    private:
+        void AllocateDummySmoothedGradients(const std::vector<Parameter>& parameters)
+        {
+            for (const auto& parameter : parameters)
+            {
+                m_smoothedGradientValues.emplace(parameter, AllocateNDArrayView(parameter, {}));
+            }
+        }
+
+        void ValidateInput(const std::vector<Parameter>& parameters, const std::vector<Variable>& gradients, FunctionPtr updateFunc);
+
+
+    protected:
+
+        virtual void Update(const Parameter& parameter, const NDArrayViewPtr& gradientValue, const NDArrayViewPtr& smoothedGradientValue, size_t trainingSampleCount) const override;
     };
 }
