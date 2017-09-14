@@ -150,13 +150,13 @@ Now call `cntk.debug.force_deterministic()` will make max and average pooling de
 ### Acknowledgments
 We thank the following community members for their contributions:+
 
-* @[cijianzy] (https://github.com/cijianzy)
-* @[FDecaYed] (https://github.com/FDecaYed)
-* @[karolzak] (https://github.com/karolzak)
-* @[KGWANGMIN] (https://github.com/KGWANGMIN)
-* @[ottolu] (https://github.com/ottolu)
-* @[StillKeepTry] (https://github.com/StillKeepTry)
-* @[taehoonlee] (https://github.com/taehoonlee)
+* [@cijianzy](https://github.com/cijianzy)
+* [@FDecaYed](https://github.com/FDecaYed)
+* [@karolzak](https://github.com/karolzak)
+* [@KGWANGMIN](https://github.com/KGWANGMIN)
+* [@ottolu](https://github.com/ottolu)
+* [@StillKeepTry](https://github.com/StillKeepTry)
+* [@taehoonlee](https://github.com/taehoonlee)
 
 We apologize for any community contributions we might have overlooked in these release notes.
 
