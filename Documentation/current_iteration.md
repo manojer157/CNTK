@@ -149,6 +149,7 @@ Now call `cntk.debug.force_deterministic()` will make max and average pooling de
 
 ### Acknowledgments
 We thank the following community members for their contributions:+
+
 * [@cijianzy] (https://github.com/cijianzy)
 * [@FDecaYed] (https://github.com/FDecaYed)
 * [@karolzak] (https://github.com/karolzak)
@@ -156,6 +157,8 @@ We thank the following community members for their contributions:+
 * [@ottolu] (https://github.com/ottolu)
 * [@StillKeepTry] (https://github.com/StillKeepTry)
 * [@taehoonlee] (https://github.com/taehoonlee)
+
+We apologize for any community contributions we might have overlooked in these release notes.
 
 ## Others 
 ### Continue work on [Deep Learning Explained](https://www.edx.org/course/deep-learning-explained-microsoft-dat236x) course on edX. 
